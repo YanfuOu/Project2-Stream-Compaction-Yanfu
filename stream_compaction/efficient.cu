@@ -39,7 +39,6 @@ namespace StreamCompaction {
 
         }
         void scan(int n, int *odata, const int *idata) {
-            timer().startGpuTimer();
             dim3 blocks(blockSize);
             dim3 grid((n + blockSize - 1)/blockSize);
             int *d_data; //can be done in place, so no need for pingpong buffers
@@ -48,6 +47,7 @@ namespace StreamCompaction {
             cudaMemset(d_data, 0, roundedN * sizeof(int)); // padding it with default 0
             cudaMemcpy(d_data, idata, n*sizeof(int), cudaMemcpyHostToDevice); 
 
+            timer().startGpuTimer();
             // Upsweep
             for(int d = 0; d <= (ilog2ceil(n) -1); d++) { //d calculates the passNum (ilog2ceil(n) -1)
                 upsweep<<<grid, blocks>>>(roundedN, d_data, d); 
@@ -58,10 +58,10 @@ namespace StreamCompaction {
             for(int d = (ilog2ceil(n) - 1); d >= 0; d--) {
                 downsweep<<<grid, blocks>>>(roundedN, d_data, d); 
             }
+            timer().endGpuTimer();
             
             cudaMemcpy(odata, d_data, n*sizeof(int), cudaMemcpyDeviceToHost); 
             cudaFree(d_data); 
-            timer().endGpuTimer();
         }
 
         /**
@@ -87,7 +87,6 @@ namespace StreamCompaction {
             }
         }
         int compact(int n, int *odata, const int *idata) {
-            timer().startGpuTimer();
             dim3 blocks(blockSize);
             dim3 grid((n + blockSize - 1)/blockSize);
             int *d_maskArr; 
@@ -99,19 +98,22 @@ namespace StreamCompaction {
             cudaMalloc(&d_odata, n*sizeof(int)); 
             cudaMemcpy(d_idata, idata, n*sizeof(int), cudaMemcpyHostToDevice); 
             // 1. create the mask
+            timer().startGpuTimer();
             mask<<<grid, blocks>>>(n, d_maskArr, d_idata); 
+            timer().endGpuTimer();
             cudaMemcpy(maskArr, d_maskArr, n*sizeof(int), cudaMemcpyDeviceToHost); 
             // 2. scan the mask
             int *scannedMaskArr = new int[n];
             int *d_scannedMaskArr;
             cudaMalloc(&d_scannedMaskArr, n*sizeof(int));
-            timer().endGpuTimer(); // scan() starts its own GPU timer
             scan(n, scannedMaskArr, maskArr); 
             timer().startGpuTimer();
             cudaMemcpy(d_scannedMaskArr, scannedMaskArr, n*sizeof(int), cudaMemcpyHostToDevice);
 
             // 3. Scatter
+            timer().startGpuTimer();
             scatter<<<grid, blocks>>>(n, d_odata, d_idata, d_maskArr, d_scannedMaskArr);
+            timer().endGpuTimer();
             cudaMemcpy(odata, d_odata, n*sizeof(int), cudaMemcpyDeviceToHost); 
 
             int count = scannedMaskArr[n - 1] + maskArr[n - 1];
@@ -121,7 +123,6 @@ namespace StreamCompaction {
             cudaFree(d_odata); 
             delete[] scannedMaskArr; 
             cudaFree(d_scannedMaskArr); 
-            timer().endGpuTimer();
             return count;
         }
     }
