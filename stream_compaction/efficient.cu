@@ -73,11 +73,56 @@ namespace StreamCompaction {
          * @param idata  The array of elements to compact.
          * @returns      The number of elements remaining after compaction.
          */
+        __global__ void mask(int n, int *d_odata, int *d_idata) {
+            int idx = blockIdx.x * blockDim.x + threadIdx.x; 
+            if(idx >= n) return; 
+            d_odata[idx] = d_idata[idx] == 0 ? 0 : 1; 
+        }
+
+        __global__ void scatter(int n, int *d_odata, int *d_idata, int *d_maskArr, int *d_scannedMaskArr) {
+            int idx = blockIdx.x * blockDim.x + threadIdx.x; 
+            if(idx >= n) return; 
+            if(d_maskArr[idx] == 1) {
+                d_odata[d_scannedMaskArr[idx]] = d_idata[idx]; 
+            }
+        }
         int compact(int n, int *odata, const int *idata) {
             timer().startGpuTimer();
-            // TODO
+            dim3 blocks(blockSize);
+            dim3 grid((n + blockSize - 1)/blockSize);
+            int *d_maskArr; 
+            int *maskArr = new int[n];
+            int *d_idata; 
+            int *d_odata; 
+            cudaMalloc(&d_maskArr, n*sizeof(int)); 
+            cudaMalloc(&d_idata, n*sizeof(int)); 
+            cudaMalloc(&d_odata, n*sizeof(int)); 
+            cudaMemcpy(d_idata, idata, n*sizeof(int), cudaMemcpyHostToDevice); 
+            // 1. create the mask
+            mask<<<grid, blocks>>>(n, d_maskArr, d_idata); 
+            cudaMemcpy(maskArr, d_maskArr, n*sizeof(int), cudaMemcpyDeviceToHost); 
+            // 2. scan the mask
+            int *scannedMaskArr = new int[n];
+            int *d_scannedMaskArr;
+            cudaMalloc(&d_scannedMaskArr, n*sizeof(int));
+            timer().endGpuTimer(); // scan() starts its own GPU timer
+            scan(n, scannedMaskArr, maskArr); 
+            timer().startGpuTimer();
+            cudaMemcpy(d_scannedMaskArr, scannedMaskArr, n*sizeof(int), cudaMemcpyHostToDevice);
+
+            // 3. Scatter
+            scatter<<<grid, blocks>>>(n, d_odata, d_idata, d_maskArr, d_scannedMaskArr);
+            cudaMemcpy(odata, d_odata, n*sizeof(int), cudaMemcpyDeviceToHost); 
+
+            int count = scannedMaskArr[n - 1] + maskArr[n - 1];
+            cudaFree(d_maskArr); 
+            delete[] maskArr; 
+            cudaFree(d_idata); 
+            cudaFree(d_odata); 
+            delete[] scannedMaskArr; 
+            cudaFree(d_scannedMaskArr); 
             timer().endGpuTimer();
-            return -1;
+            return count;
         }
     }
 }
