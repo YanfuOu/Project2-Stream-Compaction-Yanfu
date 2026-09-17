@@ -107,7 +107,6 @@ namespace StreamCompaction {
             int *d_scannedMaskArr;
             cudaMalloc(&d_scannedMaskArr, n*sizeof(int));
             scan(n, scannedMaskArr, maskArr); 
-            timer().startGpuTimer();
             cudaMemcpy(d_scannedMaskArr, scannedMaskArr, n*sizeof(int), cudaMemcpyHostToDevice);
 
             // 3. Scatter
