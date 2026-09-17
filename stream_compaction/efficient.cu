@@ -43,19 +43,22 @@ namespace StreamCompaction {
             dim3 blocks(blockSize);
             dim3 grid((n + blockSize - 1)/blockSize);
             int *d_data; //can be done in place, so no need for pingpong buffers
-            cudaMalloc(&d_data, n * sizeof(int)); 
+            int roundedN = 1 << ilog2ceil(n); // padding to the next power of 2
+            cudaMalloc(&d_data, roundedN * sizeof(int)); 
+            cudaMemset(d_data, 0, roundedN * sizeof(int)); // padding it with default 0
             cudaMemcpy(d_data, idata, n*sizeof(int), cudaMemcpyHostToDevice); 
 
             // Upsweep
             for(int d = 0; d <= (ilog2ceil(n) -1); d++) { //d calculates the passNum (ilog2ceil(n) -1)
-                upsweep<<<grid, blocks>>>(n, d_data, d); 
+                upsweep<<<grid, blocks>>>(roundedN, d_data, d); 
             }
-
+            cudaMemset(d_data + roundedN - 1, 0, sizeof(int)); // setting d_data[roundedN - 1] = 0. Aka the last value is 0
             // Downsweep
             cudaMemset(d_data + n - 1, 0, sizeof(int)); // setting d_data[n-1] = 0
             for(int d = (ilog2ceil(n) - 1); d >= 0; d--) {
-                downsweep<<<grid, blocks>>>(n, d_data, d); 
+                downsweep<<<grid, blocks>>>(roundedN, d_data, d); 
             }
+            
             cudaMemcpy(odata, d_data, n*sizeof(int), cudaMemcpyDeviceToHost); 
             cudaFree(d_data); 
             timer().endGpuTimer();
