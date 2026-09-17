@@ -34,9 +34,14 @@ namespace StreamCompaction {
          */
         int compactWithoutScan(int n, int *odata, const int *idata) {
             timer().startCpuTimer();
-            // TODO
+            int count = 0;
+            for(int i = 0; i < n; i++) {
+                if(idata[i] != 0) {
+                    odata[count++] = idata[i]; // packing the survivor(aka those without 0's) into odata directly; O(n)
+                }
+            }
             timer().endCpuTimer();
-            return -1;
+            return count;
         }
 
         /**
@@ -46,9 +51,31 @@ namespace StreamCompaction {
          */
         int compactWithScan(int n, int *odata, const int *idata) {
             timer().startCpuTimer();
-            // TODO
+            int *mask = new int[n]; 
+            int *scanedArr = new int[n];
+            // 1. building the mask
+            for(int i = 0; i < n; i++) {
+                mask[i] = idata[i] == 0 ? 0 : 1; 
+            }
+
+            // 2. scan the mask. Doing the scan again because the timer is being annoying and causing core dumping
+            int acc = 0; 
+            for(int i = 0; i < n; i++) {
+                scanedArr[i] = acc;
+                acc += mask[i]; 
+            }
+             
+            int count = 0;
+            for(int i = 0; i < n; i++) {
+                if(mask[i] == 1) { // if not filtered, directly store it in the final array
+                    odata[scanedArr[i]] = idata[i];
+                    count++;
+                }
+            }
+            delete[] mask;
+            delete[] scanedArr; 
             timer().endCpuTimer();
-            return -1;
+            return count;
         }
     }
 }
